@@ -2,10 +2,9 @@ from collections import OrderedDict
 from .layers import *
 from .efficientnet import EfficientNet
 
-
 __all__ = ['EfficientUnet', 'get_efficientunet_b0', 'get_efficientunet_b1', 'get_efficientunet_b2',
            'get_efficientunet_b3', 'get_efficientunet_b4', 'get_efficientunet_b5', 'get_efficientunet_b6',
-           'get_efficientunet_b7']
+           'get_efficientunet_b7', 'get_efficientunet']
 
 
 def get_blocks_to_be_concat(model, x):
@@ -20,12 +19,12 @@ def get_blocks_to_be_concat(model, x):
             try:
                 nonlocal count
                 if module.name == f'blocks_{count}_output_batch_norm':
+
                     count += 1
                     shape = output.size()[-2:]
                     if shape not in shapes:
                         shapes.add(shape)
                         blocks[module.name] = output
-
                 elif module.name == 'head_swish':
                     # when module.name == 'head_swish', it means the program has already got all necessary blocks for
                     # concatenation. In my dynamic unet implementation, I first upscale the output of the backbone,
@@ -50,13 +49,13 @@ def get_blocks_to_be_concat(model, x):
     model.apply(register_hook)
 
     # make a forward pass to trigger the hooks
-    model(x)
+    feature = model(x)
 
     # remove these hooks
     for h in hooks:
         h.remove()
 
-    return blocks
+    return blocks, feature
 
 
 class EfficientUnet(nn.Module):
@@ -99,7 +98,7 @@ class EfficientUnet(nn.Module):
     def forward(self, x):
         input_ = x
 
-        blocks = get_blocks_to_be_concat(self.encoder, x)
+        blocks, feature = get_blocks_to_be_concat(self.encoder, x)
         _, x = blocks.popitem()
 
         x = self.up_conv1(x)
@@ -125,7 +124,7 @@ class EfficientUnet(nn.Module):
 
         x = self.final_conv(x)
 
-        return x
+        return x, feature
 
 
 def get_efficientunet_b0(out_channels=2, concat_input=True, pretrained=True):
@@ -174,3 +173,11 @@ def get_efficientunet_b7(out_channels=2, concat_input=True, pretrained=True):
     encoder = EfficientNet.encoder('efficientnet-b7', pretrained=pretrained)
     model = EfficientUnet(encoder, out_channels=out_channels, concat_input=concat_input)
     return model
+
+
+def get_efficientunet(efficientnet_name):
+    efficientunet_dict = {'efficientnet-b0': get_efficientunet_b0, 'efficientnet-b1': get_efficientunet_b1,
+                          'efficientnet-b2': get_efficientunet_b2, 'efficientnet-b3': get_efficientunet_b3,
+                          'efficientnet-b4': get_efficientunet_b4, 'efficientnet-b5': get_efficientunet_b5,
+                          'efficientnet-b6': get_efficientunet_b6, 'efficientnet-b7': get_efficientunet_b7}
+    return efficientunet_dict[efficientnet_name]
